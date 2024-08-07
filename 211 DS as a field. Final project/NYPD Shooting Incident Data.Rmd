@@ -1,0 +1,205 @@
+---
+title: NYPD_Shooting_Incident_Data
+author: "Kraynev Dmitry"
+date: "`r Sys.Date()`"
+output:
+  html_document: default
+  pdf_document: default
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# **NYPD Shooting Incident Data (Historic)**
+
+To begin analyzing the NYPD Shooting Incident Data (Historic), we'll first import the data, clean it up as necessary, and then perform some exploratory data analysis. This will include creating visualizations and building a model to understand patterns
+
+## Step 1. Data Import
+
+Load the data
+```{r code1, echo=FALSE}
+# Load necessary libraries
+library(readr)
+library(dplyr)
+library(ggplot2)
+
+# Import the dataset
+data_path <- "NYPD_Shooting_Incident_Data__Historic_.csv"
+shooting_data <- read_csv(data_path)
+
+# Quick look at the data
+head(shooting_data)
+```
+
+## Step 2: Data Cleaning
+```{r code2, echo=FALSE}
+# Loading necessary libraries
+library(tidyr)  # For the drop_na function
+library(lubridate)  # For working with dates
+
+# Data transformation and cleaning
+shooting_data <- shooting_data %>%
+  mutate(
+    across(where(is.factor), as.character),  # Converting factors to strings
+    OCCUR_DATE = mdy(OCCUR_DATE),  # Using lubridate for correct date conversion
+    OCCUR_TIME = hms(OCCUR_TIME)  # Using lubridate for time
+  ) %>%
+  drop_na()  # Removing rows with missing values
+
+# Checking results after cleaning
+head(shooting_data)
+```
+
+## Step 3 Exploratory Data Analysis (EDA)
+
+Now we can perform some basic analysis to better understand the characteristics of the data. We will focus on the following aspects:
+
+- Distribution of incidents by boroughs.
+- Distribution of incidents over time (year, month, day of the week).
+### Distribution of incidents by boroughs.
+```{r code3, echo=FALSE}
+# Visualization of the number of incidents by boroughs
+ggplot(shooting_data, aes(x = BORO)) +
+  geom_bar(fill = "blue", color = "black") +
+  theme_minimal() +
+  labs(title = "Distribution of shootings by boroughs", x = "Borough", y = "Number of Incidents")
+
+```
+### Distribution of incidents over time (year, month, day of the week).
+```{r code4, echo=FALSE}
+library(ggplot2)
+library(lubridate)  # Ensure lubridate is loaded for date-time manipulation
+
+# Adding year, month, and day of the week columns
+shooting_data <- shooting_data %>%
+  mutate(
+    year = year(OCCUR_DATE),
+    month = month(OCCUR_DATE, label = TRUE),  # Month as an abbreviated text (e.g., Jan, Feb, etc.)
+    day_of_week = wday(OCCUR_DATE, label = TRUE)  # Day of week as an abbreviated text (e.g., Mon, Tue, etc.)
+  )
+
+# Visualization of the number of incidents by hour
+#ggplot(shooting_data, aes(x = hour)) +
+#  geom_histogram(bins = 24, fill = "red", color = "black") +  # Directly specify the number of bins
+#  theme_minimal() +
+#  labs(title = "Distribution of shootings by hour", x = "Hour", y = "Number of Incidents")
+
+# Preparing data for visualization
+borough_counts <- shooting_data %>%
+  group_by(year = year(OCCUR_DATE)) %>%
+  summarise(Incidents = n(), .groups = 'drop')  # Counting the number of incidents by year
+
+# Creating the visualization with improvements
+ggplot(borough_counts, aes(x = factor(year), y = Incidents, fill = factor(year))) +
+  geom_col(width = 0.7, show.legend = FALSE) +  # Reduce the width of bars for better visual distinction
+  geom_text(aes(label = Incidents), vjust = -0.3, color = "black", size = 4.5) +  # Add text above the bars
+  scale_fill_brewer(palette = "Pastel1") +  # Use a color palette to differentiate years
+  labs(title = "Distribution of shootings by year in New York",
+       x = "Year",
+       y = "Number of Incidents") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 0, hjust = 0.5))  # Improve labels on the X-axis for better readability
+
+# Visualization of the number of incidents by month
+ggplot(shooting_data, aes(x = month)) +
+  geom_bar(fill = "green", color = "black") +
+  theme_minimal() +
+  labs(title = "Distribution of shootings by month", x = "Month", y = "Number of Incidents")
+
+# Visualization of the number of incidents by day of the week
+ggplot(shooting_data, aes(x = day_of_week)) +
+  geom_bar(fill = "purple", color = "black") +
+  theme_minimal() +
+  labs(title = "Distribution of shootings by day of the week", x = "Day of the Week", y = "Number of Incidents")
+```
+
+## Step 4: Building the Model
+
+For modeling, logistic regression can be used to predict the probability of a shooting resulting in a homicide, using available factors such as borough, time of day, and others.
+
+```{r code5, echo=FALSE}
+# Adding the hour column to the main dataframe
+shooting_data <- shooting_data %>%
+  mutate(hour = hour(OCCUR_TIME))
+
+# Preparing data for the model
+model_data <- shooting_data %>%
+  filter(!is.na(PERP_RACE)) %>%  # Removing NA values for the PERP_RACE variable
+  mutate(murder = as.integer(STATISTICAL_MURDER_FLAG),  # Converting the logical variable to numeric
+         hour = hour(OCCUR_TIME))  # Ensuring the hour column is added correctly
+
+# Checking the presence of the 'hour' variable
+head(model_data$hour)
+
+# Building a logistic regression
+model <- glm(murder ~ BORO + hour + PERP_RACE, data = model_data, family = "binomial")
+summary(model)
+```
+## Step 5: Interpretation of results
+
+The output from the logistic regression model provides insights into the relationship between the probability of a shooting incident being classified as a murder and several predictor variables such as borough, hour of the incident, and perpetrator's race. Here is a detailed interpretation of the model's coefficients:
+
+### Interpretation of Coefficients:
+
+- **(Intercept):** The intercept term (-1.839145) represents the log odds of a shooting incident being classified as a murder when all other predictor variables are zero. The statistical significance (p < 0.001) indicates a strong baseline effect in the data.
+
+- **Borough Coefficients:**
+  - **BOROBROOKLYN, BOROMANHATTAN, BOROQUEENS, BOROSTATEN ISLAND:** These coefficients represent the log odds of a murder in these boroughs compared to the baseline borough (Bronx). None of these borough coefficients are statistically significant (p > 0.05), suggesting that, after controlling for other factors, there is no strong evidence of differences in the log odds of a murder across these boroughs compared to the Bronx.
+
+- **hour:** The coefficient for hour (0.013108) indicates a small increase in the log odds of a shooting being a murder for each additional hour of the day, with a p-value of 0.028840, suggesting this effect is statistically significant at the 5% level.
+
+- **Perpetrator Race Coefficients:**
+  - **PERP_RACEASIAN / PACIFIC ISLANDER, PERP_RACEBLACK, PERP_RACEBLACK HISPANIC, PERP_RACEUNKNOWN, PERP_RACEWHITE, PERP_RACEWHITE HISPANIC:** These coefficients compare the log odds of a shooting being a murder for perpetrators of each race compared to the reference category (likely another race not listed). Significant p-values for BLACK (p < 0.001) and WHITE HISPANIC (p < 0.001) races indicate that shootings involving these racial groups are significantly more likely to be classified as murders compared to the reference racial group. The extremely large coefficient and standard error for PERP_RACEUNKNOWN suggest instability in this estimate, likely due to very few or no observations in this category.
+
+### Model Fit and Summary:
+
+- **Null Deviance vs. Residual Deviance:** The reduction in deviance from 2943.9 on 2906 degrees of freedom in the null model (no predictors) to 2893.3 on 2895 degrees of freedom in the model with predictors shows that the predictors contribute to explaining the variability in the outcome.
+
+- **AIC (Akaike Information Criterion):** The AIC of the model is 2917.3. This value helps in comparing different models, with a lower AIC indicating a model with a better fit to the data.
+
+- **Number of Iterations:** The model took 11 iterations to converge, which is typical for logistic regression models and suggests that the fitting process was stable.
+
+### Conclusions:
+
+The model suggests that the hour of the incident and certain racial categories of the perpetrator are significant predictors of whether a shooting incident is classified as a murder, after controlling for the borough of the incident. The lack of significant effects for most boroughs suggests that, within the context of this model, borough may not be a strong predictor of the incident being classified as a murder compared to other factors such as the time of the incident and the race of the perpetrator.
+
+## Number of shootings by boroughs in New York
+
+For this visualization, we can use a bar chart that will clearly demonstrate the differences between boroughs. Here is how you can create such a diagram in R using the `ggplot2` library:
+```{r code6, echo=FALSE}
+library(ggplot2)
+
+# Preparing data for visualization
+borough_counts <- shooting_data %>%
+  group_by(BORO) %>%
+  summarise(Incidents = n(), .groups = 'drop')  # Counting the number of incidents by boroughs
+
+# Creating the visualization
+ggplot(borough_counts, aes(x = BORO, y = Incidents, fill = BORO)) +
+  geom_col(show.legend = FALSE) +  # Bar chart
+  labs(title = "Number of shootings by boroughs in New York",
+       x = "Borough",
+       y = "Number of Incidents") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Angling the text on the X-axis for better readability
+```
+
+## Step 6. Bias Identification
+
+Identifying potential biases in the dataset and the analysis is crucial for ensuring the validity and reliability of the findings. Here are some possible sources of bias that could affect the dataset and subsequent analysis:
+
+1. **Reporting Bias**: There might be inconsistencies in how incidents are reported across different boroughs or precincts. Some areas might have higher reporting rates due to more active community policing, better public awareness, or more surveillance. This could lead to an overrepresentation of incidents in these areas.
+
+2. **Selection Bias**: The data might not be representative of all shooting incidents. For example, if the dataset primarily includes incidents that were reported to the police or covered in the media, it may omit unreported cases, which could skew the analysis.
+
+3. **Measurement Bias**: The accuracy of the data entries, such as the exact time of incidents or the classification of incidents as homicides, could be prone to human error or subjective judgment by the reporting officer.
+
+4. **Geographical Bias**: The dataset might cover some geographical areas more thoroughly than others, possibly overlooking rural or less populated areas in favor of urban centers.
+
+5. **Temporal Bias**: The data might reflect certain time periods more than others. For instance, if data collection was more rigorous in recent years, earlier years might be underrepresented, leading to an inaccurate trend analysis over time.
+
+6. **Socioeconomic Bias**: Incidents might be more frequently or thoroughly reported in certain socioeconomic areas due to varying levels of police presence or community response.
+
+Discussing and addressing these potential biases is essential for interpreting the results accurately and for making informed decisions based on the analysis.
